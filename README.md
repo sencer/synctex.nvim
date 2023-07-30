@@ -1,0 +1,1 @@
+# Synctex - Evince - Neovim integration
