@@ -6,8 +6,8 @@ local M = { state = {} }
 local timer = vim.loop.new_timer()
 local running = false
 
-local function dbus_name(path)
-	if not vim.fn.filereadable(path) then
+local function dbus_name(pdf_path)
+	if not vim.fn.filereadable(pdf_path) then
 		return
 	end
 	local evince_daemon = dbus.Proxy:new({
@@ -16,11 +16,11 @@ local function dbus_name(path)
 		interface = "org.gnome.evince.Daemon",
 		path = "/org/gnome/evince/Daemon",
 	})
-	return evince_daemon:FindDocument(vim.uri_from_fname(path), true)
+	return evince_daemon:FindDocument(vim.uri_from_fname(pdf_path), true)
 end
 
-local function closed(path)
-	M.state[path] = nil
+local function closed(tex_path)
+	M.state[tex_path] = nil
 
 	if next(M.state) == nil then
 		timer:stop()
@@ -39,17 +39,18 @@ local function sync_source(_, p, l, _)
 	end)
 end
 
-local function get_window(tex_path, pdf_path)
+local function get_window(tex_path)
+	local pdf_path = tex_path:gsub(".tex$", ".pdf")
+	local name = dbus_name(pdf_path)
+	if name == nil then
+		return
+	end
+
 	if not running then
 		timer:start(0, 250, function()
 			ctx:iteration()
 		end)
 		running = true
-	end
-
-	local name = dbus_name(pdf_path)
-	if name == nil then
-		return
 	end
 
 	local window = dbus.Proxy:new({
@@ -69,26 +70,19 @@ end
 
 local function init()
 	local tex_path = vim.api.nvim_buf_get_name(0)
-	local pdf_path = tex_path:gsub(".tex$", ".pdf")
-
-	local window = get_window(tex_path, pdf_path)
-
+	local window = get_window(tex_path)
 	if window == nil then
 		return
 	end
-
 	M.state[tex_path] = window
 end
 
 M.sync_view = function()
 	local tex_path = vim.api.nvim_buf_get_name(0)
-
 	if M.state[tex_path] == nil then
 		init()
 	end
-
 	local window = M.state[tex_path]
-
 	vim.schedule(function()
 		local pos = vim.api.nvim_win_get_cursor(0)
 		window:SyncViewAsync(function(_, _, _, _)
@@ -96,6 +90,5 @@ M.sync_view = function()
 		end, {}, tex_path, pos, os.time())
 	end)
 end
-
 
 return M
