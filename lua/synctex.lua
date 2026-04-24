@@ -1,13 +1,24 @@
-local dbus = require("dbus_proxy")
-local ctx = require("lgi").GLib.MainLoop():get_context()
+local has_dbus, dbus = pcall(require, "dbus_proxy")
+local has_lgi, lgi = pcall(require, "lgi")
+
+if not has_dbus or not has_lgi then
+	vim.notify(
+		"synctex.nvim requires dbus_proxy and lgi. Plugin not loaded.",
+		vim.log.levels.WARN
+	)
+	return
+end
+
+local ctx = lgi.GLib.MainLoop():get_context()
 local next = next
 
 local M = { state = {} }
-local timer = vim.loop.new_timer()
+local uv = vim.uv or vim.loop
+local timer = uv.new_timer()
 local running = false
 
 local function dbus_name(pdf_path)
-	if not vim.fn.filereadable(pdf_path) then
+	if vim.fn.filereadable(pdf_path) == 0 then
 		return
 	end
 	local evince_daemon = dbus.Proxy:new({
@@ -32,15 +43,23 @@ local function sync_source(_, p, l, _)
 	vim.schedule(function()
 		local tex_path = vim.uri_to_fname(p)
 		if vim.api.nvim_buf_get_name(0) ~= tex_path then
-			vim.api.nvim_command(":e " .. tex_path)
+			vim.cmd({ cmd = "edit", args = { tex_path } })
 		end
-		vim.api.nvim_win_set_cursor(0, { l[1], l[2] + 1 })
-		vim.api.nvim_command("normal! zz")
+		-- Wrap cursor positioning in pcall to avoid out-of-bounds errors
+		pcall(vim.api.nvim_win_set_cursor, 0, { l[1], l[2] + 1 })
+		vim.cmd("normal! zz")
 	end)
 end
 
 local function get_window(tex_path)
-	local pdf_path = tex_path:gsub(".tex$", ".pdf")
+	-- Support for multi-file projects (VimTeX integration)
+	local pdf_path
+	if vim.b.vimtex and vim.b.vimtex.tex then
+		pdf_path = vim.b.vimtex.tex:gsub("%.tex$", ".pdf")
+	else
+		pdf_path = tex_path:gsub("%.tex$", ".pdf")
+	end
+
 	local name = dbus_name(pdf_path)
 	if name == nil then
 		return
@@ -48,7 +67,7 @@ local function get_window(tex_path)
 
 	if not running then
 		timer:start(0, 250, function()
-			ctx:iteration()
+			ctx:iteration(false) -- Non-blocking
 		end)
 		running = true
 	end
@@ -86,7 +105,7 @@ M.sync_view = function()
 	vim.schedule(function()
 		local pos = vim.api.nvim_win_get_cursor(0)
 		window:SyncViewAsync(function(_, _, _, _)
-			print(1)
+			-- Removed debug print(1)
 		end, {}, tex_path, pos, os.time())
 	end)
 end
