@@ -102,6 +102,10 @@ M.sync_view = function()
 		init()
 	end
 	local window = M.state[tex_path]
+	if not window then
+		vim.notify("Evince window not found for SyncView", vim.log.levels.WARN)
+		return
+	end
 	vim.schedule(function()
 		local pos = vim.api.nvim_win_get_cursor(0)
 		window:SyncViewAsync(function(_, _, _, _)
